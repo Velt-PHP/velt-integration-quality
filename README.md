@@ -1,45 +1,139 @@
-# Sous-module 07 - Integration et qualite
+# Velt Integration Quality
 
-## Mission
+This repository owns Velt's cross-package verification strategy. Individual packages can be healthy while the framework is broken as a distribution; this project proves that tagged components install, boot and work together from a clean environment.
 
-Ce sous-module ne represente pas forcement un package Composer runtime. Il sert a stabiliser les bases transversales du Module 1 : integration locale des six repos, standards qualite, tests inter-modules, decisions d'architecture et verification que chaque equipe peut travailler meme si les autres modules ne sont pas termines.
+> Status: release infrastructure in progress. A green unit suite in one repository is not sufficient evidence for a Velt framework release.
 
-Il existe parce que Velt est decoupe en composants. Sans conventions d'integration, les repos peuvent etre propres individuellement mais impossibles a assembler proprement.
+## Responsibilities
 
-## Perimetre
+- Define compatible tag matrices for all Composer packages.
+- Test clean installations without developer worktree junctions or path repositories.
+- Create real web, API and cross-platform projects through the CLI.
+- Exercise HTTP, UI, database, ORM, migrations, seeders and Preview end to end.
+- Run supported PHP/OS matrices and lowest/highest dependency resolution.
+- Enforce source quality, security, licensing and documentation requirements.
+- Execute Android bridge, Compose, APK/AAB and installation gates when native support is promoted.
+- Publish test reports, hashes, dependency inventory and provenance with releases.
 
-Inclus :
+## Quality pyramid
 
-- strategie Composer `path repositories` pour developper les packages localement ;
-- matrice de tests unitaires, contract tests et tests d'integration ;
-- conventions PSR-4, PSR-12, `strict_types=1`, PHPUnit, PHPStan ;
-- squelette de GitHub Actions commun ;
-- decisions d'architecture a documenter sous forme d'ADR ;
-- verification des dependances autorisees entre modules ;
-- methode de test avec fakes/stubs quand un module dependant n'est pas pret.
+```text
+Package unit tests
+        ↓
+Package contract tests against public interfaces
+        ↓
+Multi-package integration sandbox
+        ↓
+Clean consumer projects from tags/dist archives
+        ↓
+Platform E2E: web server/browser and Android emulator/device
+        ↓
+Release artifacts, signing, SBOM and provenance
+```
 
-Exclus :
+Fakes are valuable at the unit layer. They never replace the real package or platform at integration/release layers.
 
-- publication Packagist officielle ;
-- release automation complete ;
-- plugin system avance ;
-- observabilite production ;
-- audit de securite production complet.
+## Local multi-repository development
 
-## Comment tester meme sans les dependances completes
+A maintainer sandbox may use Composer path repositories:
 
-Chaque package doit pouvoir etre teste de trois manieres.
+```json
+{
+  "repositories": [
+    { "type": "path", "url": "../veltphp-kernel", "options": { "symlink": true } },
+    { "type": "path", "url": "../veltphp-http", "options": { "symlink": true } },
+    { "type": "path", "url": "../velt-ui", "options": { "symlink": true } }
+  ]
+}
+```
 
-1. Tests unitaires purs : le package teste ses classes avec des fakes locaux. Par exemple `veltphp/http` teste son router avec un faux container au lieu d'attendre le kernel complet.
-2. Contract tests : le package verifie qu'il respecte les interfaces publiques du kernel. Par exemple une fausse `ResponseInterface` suffit pour tester la normalisation HTTP.
-3. Tests d'integration locaux : un dossier sandbox installe les packages via Composer `path repositories` pour verifier les flux `route -> page -> html` et `preview -> page -> json`.
+This mode accelerates implementation but cannot prove a release. The final matrix removes path repositories, clears Composer caches where relevant and installs only published tags or commit-addressed public VCS prereleases.
 
-Les equipes ne doivent pas attendre que tous les modules soient finis pour tester. Si un module dependant manque, elles creent un fake conforme au contrat public, puis remplacent ce fake par le vrai package dans les tests d'integration.
+## Minimum package gate
 
-## Issues
+Every publishable repository must provide:
 
-- [Issue 01 - Definir Composer path repositories inter-modules](issues/01-composer-path-repositories-inter-modules.md)
-- [Issue 02 - Creer matrice de tests inter-modules](issues/02-matrice-tests-inter-modules.md)
-- [Issue 03 - Fixer standards qualite et CI minimale](issues/03-standards-qualite-ci-minimale.md)
-- [Issue 04 - Documenter philosophie Velt et decisions ADR](issues/04-philosophie-velt-decisions-adr.md)
+- valid package manifest and lock policy;
+- LICENSE and user-oriented README;
+- tests executable from a clean clone;
+- static analysis and formatting policy appropriate to the codebase;
+- CI on supported runtimes;
+- changelog/upgrade note for public changes;
+- dependency and security review;
+- no local absolute path, secret or unintended development constraint.
 
+## Framework scenarios
+
+### Web
+
+```bash
+velt new smoke-web --type=web --styling=tailwind --database=sqlite --no-interaction
+cd smoke-web
+velt migrate
+velt db:seed
+composer test
+npm run build
+velt kernel:check
+```
+
+The gate verifies Tailwind is installed and built, web routes render, assets exist, database work succeeds and no Android-only dependency leaks into the profile.
+
+### API
+
+```bash
+velt new smoke-api --type=api --database=sqlite --no-interaction
+cd smoke-api
+velt migrate
+composer test
+```
+
+The gate asserts there are no views, Tailwind/Node files, Preview controllers, UI dependency or web routes, then exercises JSON and error responses.
+
+### Cross-platform
+
+The gate confirms NativeWind/native manifests and PHP 8.4 constraints are present while the project remains clearly marked experimental. Stable promotion additionally requires the Android matrix below.
+
+## Android release gate
+
+1. Build pinned PHP libraries for x86_64 and arm64-v8a.
+2. Boot the real Velt kernel inside the Android process.
+3. Run PHP → `nativephp_call()` → JNI/Kotlin → PHP instrumentation.
+4. Render and interact with a Velt tree through Compose, not WebView.
+5. Exercise permission success/denial and native error propagation.
+6. Run SQLite migration and persistence after process restart.
+7. Generate debug APK, signed release APK and AAB.
+8. Verify signatures, alignment, manifest, permissions and bundled ABIs.
+9. Install on a clean emulator and run offline/upgrade smoke tests.
+10. Publish reports, hashes, SBOM and provenance.
+
+The job checks that test doubles are absent from release artifacts and fails when an instrumented step is skipped.
+
+## Supported matrix direction
+
+| Layer | Matrix |
+| --- | --- |
+| CLI/Skeleton | Windows, Ubuntu, macOS; PHP 8.2/8.3/8.4 |
+| Packages | Supported PHP lines; lowest and highest dependencies |
+| Databases | SQLite, MySQL and PostgreSQL versions declared supported |
+| Preview | Node LTS, protocol fixtures and Android bundle export |
+| Android | min/target API, x86_64 emulator, arm64 device/device farm |
+
+## Failure policy
+
+Release-blocking failures include incompatible Composer tags, missing tests, security-critical advisories, unsigned or unverifiable artifacts, Android fake/WebView fallback, non-reproducible documentation and secret leakage. Flaky tests are quarantined only with an owner, issue, deadline and preserved release block when they cover a required guarantee.
+
+## ADR and issue workflow
+
+Cross-cutting decisions are documented as ADRs with context, chosen option, alternatives, consequences and migration impact. Work is grouped into dated milestones. Assigned issues receive automated reminders and must include progress, tests and blockers every two working days.
+
+## Reproducing a release
+
+A release report records repository SHAs/tags, OS/runtime/tool versions, dependency resolution, commands, test counts, skipped tests, artifact hashes and known limitations. Another maintainer must be able to repeat it without access to the original developer machine.
+
+## Contributing
+
+Add reusable scripts and fixtures here instead of duplicating integration logic across packages. A new public feature must add or update the scenario proving it in a clean consumer. Never weaken a gate merely to publish a tag; use an honest prerelease label until the requirement is satisfied.
+
+## License
+
+Documentation and automation in this repository are MIT licensed unless a file states otherwise.
